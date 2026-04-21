@@ -180,13 +180,26 @@ int head_update(const ObjectID *new_commit) {
 }
 
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // Algorithm:
-    //   1. tree_from_index  → snapshot the staged files into a tree object
-    //   2. head_read        → get the parent commit hash (none for first commit)
-    //   3. Populate Commit struct with tree, parent, author, timestamp, message
-    //   4. commit_serialize → convert struct to text format
-    //   5. object_write     → store the serialized text as OBJ_COMMIT
-    //   6. head_update      → move the branch pointer to the new commit
+    // Step 1: Build the tree from the staged index
+    ObjectID tree_id;
+    if (tree_from_index(&tree_id) != 0) {
+        fprintf(stderr, "error: failed to build tree from index\n");
+        return -1;
+    }
+
+    // Step 2: Populate the Commit struct
+    Commit c;
+    memset(&c, 0, sizeof(c));
+    c.tree = tree_id;
+
+    // Step 3: Read current HEAD as parent (fails gracefully on first commit)
+    if (head_read(&c.parent) == 0) {
+        c.has_parent = 1;
+    } else {
+        c.has_parent = 0;
+    }
+
+    // Remaining steps will be added in the next commit
     (void)message; (void)commit_id_out;
     return -1;
 }
