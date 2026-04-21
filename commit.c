@@ -192,7 +192,7 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     memset(&c, 0, sizeof(c));
     c.tree = tree_id;
 
-    // Step 3: Read current HEAD as parent
+    // Step 3: Read current HEAD as parent (no parent on first commit)
     if (head_read(&c.parent) == 0) {
         c.has_parent = 1;
     } else {
@@ -212,8 +212,21 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
         return -1;
     }
 
-    // object_write and head_update will be added in the next commit
+    // Step 6: Write the commit object to the store
+    ObjectID commit_id;
+    int rc = object_write(OBJ_COMMIT, data, len, &commit_id);
     free(data);
-    (void)commit_id_out;
-    return -1;
+    if (rc != 0) {
+        fprintf(stderr, "error: failed to write commit object\n");
+        return -1;
+    }
+
+    // Step 7: Move the branch pointer to the new commit
+    if (head_update(&commit_id) != 0) {
+        fprintf(stderr, "error: failed to update HEAD\n");
+        return -1;
+    }
+
+    if (commit_id_out) *commit_id_out = commit_id;
+    return 0;
 }
