@@ -120,41 +120,59 @@ static int compare_index_entries(const void *a, const void *b) {
     return strcmp(((const IndexEntry *)a)->path, ((const IndexEntry *)b)->path);
 }
 
-// index_load: reads .pes/index line by line into the Index struct.
-// If the file does not exist, sets count=0 and returns success (empty index).
 int index_load(Index *index) {
     index->count = 0;
-
     FILE *f = fopen(INDEX_FILE, "r");
-    if (!f) return 0; // No index file yet — empty index is valid
+    if (!f) return 0;
 
     char hex[HASH_HEX_SIZE + 1];
     while (index->count < MAX_INDEX_ENTRIES) {
         IndexEntry *e = &index->entries[index->count];
         int ret = fscanf(f, "%o %64s %llu %u %511s\n",
-                         &e->mode,
-                         hex,
+                         &e->mode, hex,
                          (unsigned long long *)&e->mtime_sec,
-                         &e->size,
-                         e->path);
+                         &e->size, e->path);
         if (ret == EOF) break;
         if (ret != 5)  { fclose(f); return -1; }
         if (hex_to_hash(hex, &e->hash) != 0) { fclose(f); return -1; }
         index->count++;
     }
-
     fclose(f);
     return 0;
 }
 
+// index_save: sorts entries, writes to a .tmp file atomically, then renames.
+// Sorting ensures the index is deterministic and diffs are meaningful.
 int index_save(const Index *index) {
-    // TODO: implement in next commit
-    (void)index;
-    return -1;
+    // Make a mutable sorted copy
+    Index sorted = *index;
+    qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
+
+    char tmp_path[256];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", INDEX_FILE);
+
+    FILE *f = fopen(tmp_path, "w");
+    if (!f) return -1;
+
+    for (int i = 0; i < sorted.count; i++) {
+        char hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&sorted.entries[i].hash, hex);
+        fprintf(f, "%o %s %llu %u %s\n",
+                sorted.entries[i].mode,
+                hex,
+                (unsigned long long)sorted.entries[i].mtime_sec,
+                sorted.entries[i].size,
+                sorted.entries[i].path);
+    }
+
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+    return rename(tmp_path, INDEX_FILE);
 }
 
 int index_add(Index *index, const char *path) {
-    // TODO: implement in a later commit
+    // TODO: implement in next commit
     (void)index; (void)path;
     return -1;
 }
