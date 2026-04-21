@@ -108,9 +108,59 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 
 // ─── IMPLEMENTED ─────────────────────────────────────────────────────────────
 
-// tree_from_index: builds a full tree hierarchy from the staged index.
-// TODO: recursive helper and entry point will be added in subsequent commits.
+/*
+ * write_tree_recursive — builds one tree level for the given prefix.
+ *
+ * entries   : the full array of index entries
+ * count     : total number of entries
+ * prefix    : directory prefix we are currently handling, e.g. "" or "src/"
+ * id_out    : receives the ObjectID of the written tree object
+ *
+ * For each index entry whose path starts with prefix:
+ *   - Strip the prefix to get the relative name
+ *   - If no '/' in the relative name → direct file → BLOB entry
+ *   - If '/' present → subdirectory → recurse, then add TREE entry
+ */
+static int write_tree_recursive(const IndexEntry *entries, int count,
+                                 const char *prefix, ObjectID *id_out) {
+    Tree tree;
+    tree.count = 0;
+    size_t prefix_len = strlen(prefix);
+    int i = 0;
+
+    while (i < count) {
+        const char *path = entries[i].path;
+
+        // Skip entries not under this prefix
+        if (strncmp(path, prefix, prefix_len) != 0) { i++; continue; }
+
+        const char *relative = path + prefix_len;
+        const char *slash    = strchr(relative, '/');
+
+        if (!slash) {
+            // Direct file — add as BLOB entry
+            TreeEntry *e = &tree.entries[tree.count++];
+            e->mode = entries[i].mode;
+            e->hash = entries[i].hash;
+            strncpy(e->name, relative, sizeof(e->name) - 1);
+            e->name[sizeof(e->name) - 1] = '\0';
+            i++;
+        } else {
+            // Subdirectory handling will be added in the next commit
+            i++;
+        }
+    }
+
+    // Serialize and write this tree level
+    void *data; size_t len;
+    if (tree_serialize(&tree, &data, &len) != 0) return -1;
+    int rc = object_write(OBJ_TREE, data, len, id_out);
+    free(data);
+    return rc;
+}
+
 int tree_from_index(ObjectID *id_out) {
-    (void)id_out;
-    return -1;
+    Index index;
+    if (index_load(&index) != 0) return -1;
+    return write_tree_recursive(index.entries, index.count, "", id_out);
 }
