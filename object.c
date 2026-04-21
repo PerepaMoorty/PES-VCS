@@ -69,8 +69,6 @@ int object_exists(const ObjectID *id) {
 
 // ─── IMPLEMENTED ─────────────────────────────────────────────────────────────
 
-// object_write: builds the full object (header + data), hashes it,
-// then writes it to the shard directory. File writing is not yet done.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
     // Step 1: Choose the type string for the header
     const char *type_str;
@@ -82,7 +80,6 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     }
 
     // Step 2: Build the header string e.g. "blob 16\0"
-    // snprintf writes the null terminator, so header_len includes it
     char header[64];
     int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
 
@@ -98,13 +95,50 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     compute_hash(full_obj, full_len, &id);
     if (id_out) *id_out = id;
 
-    free(full_obj);
+    // Step 5: Deduplication — skip writing if object already exists
+    if (object_exists(&id)) {
+        free(full_obj);
+        return 0;
+    }
 
-    // File writing will be added in the next commit
+    // Step 6: Create shard directory .pes/objects/XX/
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(&id, hex);
+    char shard_dir[256];
+    snprintf(shard_dir, sizeof(shard_dir), "%s/%.2s", OBJECTS_DIR, hex);
+    mkdir(shard_dir, 0755);
+
+    // Step 7: Build final path and temp path
+    char final_path[512];
+    object_path(&id, final_path, sizeof(final_path));
+    char tmp_path[520];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", final_path);
+
+    // Step 8: Write to temp file, fsync, then atomic rename
+    int fd = open(tmp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) { free(full_obj); return -1; }
+
+    ssize_t written = write(fd, full_obj, full_len);
+    free(full_obj);
+    if (written < 0 || (size_t)written != full_len) {
+        close(fd); unlink(tmp_path); return -1;
+    }
+
+    if (fsync(fd) != 0) { close(fd); unlink(tmp_path); return -1; }
+    close(fd);
+
+    if (rename(tmp_path, final_path) != 0) {
+        unlink(tmp_path); return -1;
+    }
+
+    // Step 9: fsync the shard directory to persist the rename
+    int dir_fd = open(shard_dir, O_RDONLY);
+    if (dir_fd >= 0) { fsync(dir_fd); close(dir_fd); }
+
     return 0;
 }
 
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
     (void)id; (void)type_out; (void)data_out; (void)len_out;
     return -1;
-}   
+}
