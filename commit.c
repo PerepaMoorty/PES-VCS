@@ -179,23 +179,14 @@ int head_update(const ObjectID *new_commit) {
     return rename(tmp_path, target_path);
 }
 
-// ─── TODO: Implement these ───────────────────────────────────────────────────
-
-// Create a new commit from the current staging area.
-//
-// HINTS - Useful functions to call:
-//   - tree_from_index   : writes the directory tree and gets the root hash
-//   - head_read         : gets the parent commit hash (if any)
-//   - pes_author        : retrieves the author name string (from pes.h)
-//   - time(NULL)        : gets the current unix timestamp
-//   - commit_serialize  : converts the filled Commit struct to a text buffer
-//   - object_write      : saves the serialized text as OBJ_COMMIT
-//   - head_update       : moves the branch pointer to your new commit
-//
-// Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
+    // Algorithm:
+    //   1. tree_from_index  → snapshot the staged files into a tree object
+    //   2. head_read        → get the parent commit hash (none for first commit)
+    //   3. Populate Commit struct with tree, parent, author, timestamp, message
+    //   4. commit_serialize → convert struct to text format
+    //   5. object_write     → store the serialized text as OBJ_COMMIT
+    //   6. head_update      → move the branch pointer to the new commit
     (void)message; (void)commit_id_out;
     return -1;
 }
