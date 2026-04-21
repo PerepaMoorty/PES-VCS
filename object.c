@@ -67,11 +67,41 @@ int object_exists(const ObjectID *id) {
     return access(path, F_OK) == 0;
 }
 
-// ─── TODO ────────────────────────────────────────────────────────────────────
+// ─── IMPLEMENTED ─────────────────────────────────────────────────────────────
 
+// object_write: builds the full object (header + data), hashes it,
+// then writes it to the shard directory. File writing is not yet done.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    (void)type; (void)data; (void)len; (void)id_out;
-    return -1;
+    // Step 1: Choose the type string for the header
+    const char *type_str;
+    switch (type) {
+        case OBJ_BLOB:   type_str = "blob";   break;
+        case OBJ_TREE:   type_str = "tree";   break;
+        case OBJ_COMMIT: type_str = "commit"; break;
+        default: return -1;
+    }
+
+    // Step 2: Build the header string e.g. "blob 16\0"
+    // snprintf writes the null terminator, so header_len includes it
+    char header[64];
+    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
+
+    // Step 3: Allocate full object = header bytes + data bytes
+    size_t full_len = (size_t)header_len + len;
+    uint8_t *full_obj = malloc(full_len);
+    if (!full_obj) return -1;
+    memcpy(full_obj, header, header_len);
+    memcpy(full_obj + header_len, data, len);
+
+    // Step 4: SHA-256 hash of the full object
+    ObjectID id;
+    compute_hash(full_obj, full_len, &id);
+    if (id_out) *id_out = id;
+
+    free(full_obj);
+
+    // File writing will be added in the next commit
+    return 0;
 }
 
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
