@@ -12,6 +12,7 @@
 // IMPLEMENTED functions: index_load, index_save, index_add
 
 #include "index.h"
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
