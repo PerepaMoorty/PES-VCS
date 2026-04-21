@@ -141,10 +141,7 @@ int index_load(Index *index) {
     return 0;
 }
 
-// index_save: sorts entries, writes to a .tmp file atomically, then renames.
-// Sorting ensures the index is deterministic and diffs are meaningful.
 int index_save(const Index *index) {
-    // Make a mutable sorted copy
     Index sorted = *index;
     qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
 
@@ -158,8 +155,7 @@ int index_save(const Index *index) {
         char hex[HASH_HEX_SIZE + 1];
         hash_to_hex(&sorted.entries[i].hash, hex);
         fprintf(f, "%o %s %llu %u %s\n",
-                sorted.entries[i].mode,
-                hex,
+                sorted.entries[i].mode, hex,
                 (unsigned long long)sorted.entries[i].mtime_sec,
                 sorted.entries[i].size,
                 sorted.entries[i].path);
@@ -171,8 +167,60 @@ int index_save(const Index *index) {
     return rename(tmp_path, INDEX_FILE);
 }
 
+// index_add: reads the file, stores it as a blob, records metadata in the index.
+// Uses index_find to update an existing entry or append a new one.
 int index_add(Index *index, const char *path) {
-    // TODO: implement in next commit
-    (void)index; (void)path;
-    return -1;
+    // Step 1: Read the file contents into memory
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "error: cannot open '%s'\n", path); return -1; }
+
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (file_size < 0) { fclose(f); return -1; }
+
+    void *contents = malloc((size_t)file_size);
+    if (!contents) { fclose(f); return -1; }
+    if (fread(contents, 1, (size_t)file_size, f) != (size_t)file_size) {
+        free(contents); fclose(f); return -1;
+    }
+    fclose(f);
+
+    // Step 2: Write the file as a blob object
+    ObjectID blob_id;
+    if (object_write(OBJ_BLOB, contents, (size_t)file_size, &blob_id) != 0) {
+        free(contents); return -1;
+    }
+    free(contents);
+
+    // Step 3: Get file metadata
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+
+    uint32_t mode = S_ISREG(st.st_mode)
+                    ? ((st.st_mode & S_IXUSR) ? 0100755 : 0100644)
+                    : 0100644;
+
+    // Step 4: Upsert the index entry (update existing or append new)
+    IndexEntry *existing = index_find(index, path);
+    if (existing) {
+        existing->mode      = mode;
+        existing->hash      = blob_id;
+        existing->mtime_sec = (uint64_t)st.st_mtime;
+        existing->size      = (uint32_t)st.st_size;
+    } else {
+        if (index->count >= MAX_INDEX_ENTRIES) {
+            fprintf(stderr, "error: index is full\n"); return -1;
+        }
+        IndexEntry *e = &index->entries[index->count++];
+        e->mode      = mode;
+        e->hash      = blob_id;
+        e->mtime_sec = (uint64_t)st.st_mtime;
+        e->size      = (uint32_t)st.st_size;
+        strncpy(e->path, path, sizeof(e->path) - 1);
+        e->path[sizeof(e->path) - 1] = '\0';
+    }
+
+    // Step 5: Persist the updated index atomically
+    return index_save(index);
 }
