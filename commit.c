@@ -192,14 +192,28 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     memset(&c, 0, sizeof(c));
     c.tree = tree_id;
 
-    // Step 3: Read current HEAD as parent (fails gracefully on first commit)
+    // Step 3: Read current HEAD as parent
     if (head_read(&c.parent) == 0) {
         c.has_parent = 1;
     } else {
         c.has_parent = 0;
     }
 
-    // Remaining steps will be added in the next commit
-    (void)message; (void)commit_id_out;
+    // Step 4: Set author, timestamp, and message
+    snprintf(c.author,  sizeof(c.author),  "%s", pes_author());
+    snprintf(c.message, sizeof(c.message), "%s", message);
+    c.timestamp = (uint64_t)time(NULL);
+
+    // Step 5: Serialize the commit struct to text
+    void *data;
+    size_t len;
+    if (commit_serialize(&c, &data, &len) != 0) {
+        fprintf(stderr, "error: failed to serialize commit\n");
+        return -1;
+    }
+
+    // object_write and head_update will be added in the next commit
+    free(data);
+    (void)commit_id_out;
     return -1;
 }
