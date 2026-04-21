@@ -116,15 +116,35 @@ int index_status(const Index *index) {
 
 // ─── IMPLEMENTED ─────────────────────────────────────────────────────────────
 
-// Comparison function used by qsort to sort index entries alphabetically by path
 static int compare_index_entries(const void *a, const void *b) {
     return strcmp(((const IndexEntry *)a)->path, ((const IndexEntry *)b)->path);
 }
 
+// index_load: reads .pes/index line by line into the Index struct.
+// If the file does not exist, sets count=0 and returns success (empty index).
 int index_load(Index *index) {
-    // TODO: implement in next commit
-    (void)index;
-    return -1;
+    index->count = 0;
+
+    FILE *f = fopen(INDEX_FILE, "r");
+    if (!f) return 0; // No index file yet — empty index is valid
+
+    char hex[HASH_HEX_SIZE + 1];
+    while (index->count < MAX_INDEX_ENTRIES) {
+        IndexEntry *e = &index->entries[index->count];
+        int ret = fscanf(f, "%o %64s %llu %u %511s\n",
+                         &e->mode,
+                         hex,
+                         (unsigned long long *)&e->mtime_sec,
+                         &e->size,
+                         e->path);
+        if (ret == EOF) break;
+        if (ret != 5)  { fclose(f); return -1; }
+        if (hex_to_hash(hex, &e->hash) != 0) { fclose(f); return -1; }
+        index->count++;
+    }
+
+    fclose(f);
+    return 0;
 }
 
 int index_save(const Index *index) {
