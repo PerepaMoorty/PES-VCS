@@ -123,10 +123,8 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     return 0;
 }
 
-// object_read: loads a stored object, verifies its integrity via SHA-256,
-// then parses the header to extract the type and returns the data portion.
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
-    // Step 1: Get file path and read the whole file into memory
+    // Step 1: Get file path and read entire file into memory
     char path[512];
     object_path(id, path, sizeof(path));
 
@@ -145,11 +143,19 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     }
     fclose(f);
 
-    // Step 2: Parse the header — find '\0' that separates header from data
+    // Step 2: Integrity check — recompute SHA-256 and compare to filename hash
+    ObjectID computed;
+    compute_hash(raw, (size_t)file_size, &computed);
+    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) {
+        free(raw);
+        return -1; // Corruption detected
+    }
+
+    // Step 3: Find the '\0' separating header from data
     uint8_t *null_pos = memchr(raw, '\0', (size_t)file_size);
     if (!null_pos) { free(raw); return -1; }
 
-    // Step 3: Parse the type string from the header (e.g. "blob 16")
+    // Step 4: Parse the type string
     char type_str[16] = {0};
     if (sscanf((char *)raw, "%15s", type_str) != 1) { free(raw); return -1; }
 
@@ -158,7 +164,16 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     else if (strcmp(type_str, "commit") == 0) *type_out = OBJ_COMMIT;
     else { free(raw); return -1; }
 
-    // Integrity check will be added in the next commit
+    // Step 5: Extract and return the data portion (everything after '\0')
+    uint8_t *data_start = null_pos + 1;
+    size_t data_len = (size_t)file_size - (size_t)(data_start - raw);
+
+    *data_out = malloc(data_len + 1);
+    if (!*data_out) { free(raw); return -1; }
+    memcpy(*data_out, data_start, data_len);
+    ((uint8_t *)*data_out)[data_len] = '\0';
+    *len_out = data_len;
+
     free(raw);
     return 0;
 }
